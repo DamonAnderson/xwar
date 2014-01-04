@@ -1,0 +1,480 @@
+<head>
+<title>CrossWar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+<link rel="icon" type="image/png" href="logo-32.png" />
+<style type="text/css">
+html, body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	font-family: proxima-nova-1, proxima-nova-2, helvetica, arial, sans-serif;
+	text-align: center;
+}
+
+#view {
+	display: block;
+	width: 100%;
+	height: 100%;
+	background: #fff;
+	user-select: none;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<script type="text/javascript">
+var d = document, c = d.getElementById('view');
+c.width = window.innerWidth;
+c.height = window.innerHeight;
+var q = c.getContext('2d'),
+	Board = function(size) {
+		this.size = size;
+		this.title = '';
+		this.field = [];
+		this.numbers = [];
+		this.clues = {};
+		this.setField = function(data) {
+			var k = 1;
+			this.title = data.title;
+			this.clues = data.clues;
+			for (var i=0;i<this.size;i++) {
+				this.field.push(data.board.substr(i*this.size,this.size));
+				this.numbers.push([]);
+				for (var j=0;j<this.size;j++) {
+					if (this.field[i][j] == '*') {
+						this.scratch[i][j] = '*';
+					}
+					else {
+						this.scratch[i][j] = ' ';
+					}
+					if (data.numbers[i*this.size + j] == '#') {
+						this.numbers[i].push(k);
+						k++;
+					}
+					else {
+						this.numbers[i].push(0);
+					}
+				}
+			}
+		};
+		this.scratch = [];
+		this.territory = [];
+		for (var i=0;i<this.size;i++) {
+			this.scratch.push([]);
+			this.territory.push([]);
+			for (var j=0;j<this.size;j++) {
+				this.scratch[i].push(0);
+				this.territory[i].push(0);
+			}
+		}
+		this.currentClue = '1A';
+		this.currentSquare = {'x': 0, 'y': 0};
+		this.across = true;
+		this.color = 'red';
+		this.redScore = 0;
+		this.blueScore = 0;
+		this.secs = 0;
+		this.getTime = function() {
+			var minutes = Math.floor(this.secs / 60),
+				seconds = this.secs % 60,
+				result = '';
+			
+			if (minutes < 10) {
+				result += ('0' + minutes);
+			}
+			else {
+				result += minutes;
+			}
+			
+			result += ':';
+			
+			if (seconds < 10) {
+				result += ('0' + seconds);
+			}
+			else {
+				result += seconds;
+			}
+			
+			return result;
+		};
+		
+		this.totalPoints = function() {
+			this.redScore = 0;
+			this.blueScore = 0;
+			for (var i=0;i<this.size;i++) {
+				for (var j=0;j<this.size;j++) {
+					if (this.territory[i][j] == 1) {
+						this.redScore++;
+					}
+					else if (this.territory[i][j] == 2) {
+						this.blueScore++;
+					}
+				}
+			}
+		};
+		
+		this.checkClues = function() {
+			var sq = {'x': this.currentSquare.x, 'y': this.currentSquare.y}
+				si = {'x': this.currentSquare.x, 'y': this.currentSquare.y}, solved = true;
+			
+			// Check across
+			while (sq.x >= 0 && this.scratch[sq.y][sq.x] != '*') {
+				sq.x--;
+			}
+			sq.x++;
+			si.x = sq.x;
+			while (si.x < this.size && this.scratch[si.y][si.x] != '*') {
+				solved = solved && (this.scratch[si.y][si.x] == this.field[si.y][si.x]);
+				si.x++;
+			}
+			if (solved) {
+				si.x = sq.x;
+				while (si.x < this.size && this.scratch[si.y][si.x] != '*') {
+					if (this.color == 'red') {
+						this.territory[si.y][si.x] = 1;
+					}
+					else {
+						this.territory[si.y][si.x] = 2;
+					}
+					si.x++;
+				}
+			}
+			
+			// Check down
+			sq = {'x': this.currentSquare.x, 'y': this.currentSquare.y};
+			solved = true;
+			while (sq.y >= 0 && this.scratch[sq.y][sq.x] != '*') {
+				sq.y--;
+			}
+			sq.y++;
+			si.x = sq.x;
+			si.y = sq.y;
+			while (si.y < this.size && this.scratch[si.y][si.x] != '*') {
+				solved = solved && (this.scratch[si.y][si.x] == this.field[si.y][si.x]);
+				si.y++;
+			}
+			if (solved) {
+				si.y = sq.y;
+				while (si.y < this.size && this.scratch[si.y][si.x] != '*') {
+					if (this.color == 'red') {
+						this.territory[si.y][si.x] = 1;
+					}
+					else {
+						this.territory[si.y][si.x] = 2;
+					}
+					si.y++;
+				}
+			}
+			
+			// Total the scores
+			this.totalPoints();
+		};
+		
+		this.offX = 0;
+		this.offY = 0;
+		this.cellSize = c.height / this.size;
+		
+		this.draw = function() {
+			q.strokeStyle = '#000';
+			q.lineWidth = 1;
+			q.font = 'bold 11pt Arial';
+			q.textBaseline = 'top';
+			q.clearRect(0,0,c.width,c.height);
+			var row, s = this.cellSize, sq = {'x': this.currentSquare.x, 'y': this.currentSquare.y};
+			
+			// Mark territory
+			for (var i=0;i<this.size;i++) {
+				for (var j=0;j<this.size;j++) {
+					if (this.territory[i][j] == 1) {
+						q.fillStyle = '#f00';
+						q.fillRect(this.offX + j*s, this.offY + i*s, s, s);
+					}
+					else if (this.territory[i][j] == 2) {
+						q.fillStyle = '#00e';
+						q.fillRect(this.offX + j*s, this.offY + i*s, s, s);
+					}
+				}
+			}
+			
+			// Highlight current clue
+			q.fillStyle = 'rgba(255,0,0,0.3)';
+			if (this.across) {
+				while (sq.x < this.size && this.scratch[sq.y][sq.x] != '*') {
+					q.fillRect(this.offX + sq.x*s, this.offY + sq.y*s, s, s);
+					sq.x++;
+				}
+				sq.x = this.currentSquare.x - 1;
+				while (sq.x >= 0 && this.scratch[sq.y][sq.x] != '*') {
+					q.fillRect(this.offX + sq.x*s, this.offY + sq.y*s, s, s);
+					sq.x--;
+				}
+				this.currentClue = this.numbers[sq.y][sq.x+1] + 'A';
+			}
+			else {
+				while (sq.y < this.size && this.scratch[sq.y][sq.x] != '*') {
+					q.fillRect(this.offX + sq.x*s, this.offY + sq.y*s, s, s);
+					sq.y++;
+				}
+				sq.y = this.currentSquare.y - 1;
+				while (sq.y >= 0 && this.scratch[sq.y][sq.x] != '*') {
+					q.fillRect(this.offX + sq.x*s, this.offY + sq.y*s, s, s);
+					sq.y--;
+				}
+				this.currentClue = this.numbers[sq.y+1][sq.x] + 'D';
+			}
+			
+			// Draw puzzle grid
+			q.fillStyle = '#000';
+			for (var i=0,h=this.scratch.length;i<h;i++) {
+				row = this.scratch[i];
+				for (var j=0,w=row.length;j<w;j++) {
+					q.strokeRect(this.offX + j*s, this.offY + i*s, s, s);
+					if (row[j] == '*') {
+						q.fillRect(this.offX + j*s, this.offY + i*s, s, s);
+					}
+					else {
+						if (this.numbers[i][j] > 0) {
+							q.font = 'bold 11pt Arial';
+							q.fillText(''+this.numbers[i][j], this.offX + j*s + 3, this.offY + i*s + 3);
+						}
+						q.font = 'bold 20pt Arial';
+						q.fillText(''+row[j], this.offX + j*s + 16, this.offY + i*s + 14);
+					}
+				}
+			}
+			
+			// Outline current cell
+			q.lineWidth = 3;
+			q.strokeRect(this.offX, this.offY, this.size*s, this.size*s);
+			q.strokeStyle = 'red';
+			q.strokeRect(b.offX + this.currentSquare.x*b.cellSize, b.offY + this.currentSquare.y*b.cellSize, b.cellSize, b.cellSize);
+			
+			// Display puzzle title
+			q.font = 'bold 24pt Arial';
+			q.fillText(this.title, this.offX + this.size*s + 20, this.offY);
+			// Display current clue
+			q.font = 'bold 16pt Arial';
+			q.fillText(this.currentClue, this.offX + this.size*s + 20, this.offY + 60);
+			q.fillText(this.clues[this.currentClue], this.offX + this.size*s + 20, this.offY + 90);
+			
+			// Display scores
+			q.fillText('Time: ' + this.getTime(), this.offX + this.size*s + 20, this.offY + 200);
+			q.fillStyle = '#f00';
+			q.fillText('Red: ' + this.redScore, this.offX + this.size*s + 20, this.offY + 250);
+			q.fillStyle = '#00f';
+			q.fillText('Blue: ' + this.blueScore, this.offX + this.size*s + 20, this.offY + 280);
+		};
+		
+		var that = this;
+		this.update = function() {
+			that.secs++;
+			
+			var xhr, o;
+	
+			try{
+				// Opera 8.0+, Firefox, Safari
+				xhr = new XMLHttpRequest();
+			} catch (e){
+				// Internet Explorer Browsers
+				try{
+					xhr = new ActiveXObject("Msxml2.XMLHTTP");
+				} catch (e) {
+					try{
+						xhr = new ActiveXObject("Microsoft.XMLHTTP");
+					} catch (e){
+						// Something went wrong
+						alert("Your browser broke!");
+						return false;
+					}
+				}
+			}
+			// Create a function that will receive data sent from the server
+			xhr.onreadystatechange = function(){
+				if(xhr.readyState == 4){
+					o = JSON.parse(xhr.responseText);
+					that.scratch = o.scratch;
+					that.territory = o.territory;
+					that.draw();
+					window.setTimeout(that.update, 100);
+				}
+			}
+			xhr.open("GET", "updateBoard.php", true);
+			xhr.send(null);
+		};
+	},
+	b = new Board(15),
+	g = <?php echo $g; ?>,
+	started = false, prev = {'x':-1,'y':-1};
+
+b.setField(g);
+b.draw();
+
+d.onmouseup = function(e) {
+	var	x = e.pageX - c.offsetLeft,
+		y = e.pageY - c.offsetTop,
+		rx= Math.floor((x-b.offX)/b.cellSize),
+		ry= Math.floor((y-b.offY)/b.cellSize);
+	
+	if (rx >= 0 && rx < b.size && ry >= 0 && ry < b.size && b.field[ry][rx] != '*') {
+		if (rx == prev.x && ry == prev.y) {
+			b.across = !b.across;
+		}
+		else {
+			b.currentSquare.x = rx;
+			b.currentSquare.y = ry;
+			prev.x = rx;
+			prev.y = ry;
+		}
+	}
+	addLetter(b.currentSquare.x,b.currentSquare.y,'');
+	b.draw();
+};
+
+d.onkeyup = function(e) {
+	var k = e.keyCode, tmp = {'x': b.currentSquare.x, 'y': b.currentSquare.y}, letter = '';
+	if (k==37) {
+		if (!b.across) {
+			b.across = true;
+		}
+		else {
+			tmp.x--;
+			while (tmp.x >= 0 && b.field[tmp.y][tmp.x] == '*') {
+				tmp.x--;
+			}
+			if (tmp.x >= 0) {
+				b.currentSquare = tmp;
+			}
+		}
+	}
+	else if (k==38) {
+		if (b.across) {
+			b.across = false;
+		}
+		else {
+			tmp.y--;
+			while (tmp.y >= 0 && b.field[tmp.y][tmp.x] == '*') {
+				tmp.y--;
+			}
+			if (tmp.y >= 0) {
+				b.currentSquare = tmp;
+			}
+		}
+	}
+	else if (k==39) {
+		if (!b.across) {
+			b.across = true;
+		}
+		else {
+			tmp.x++;
+			while (tmp.x < b.size && b.field[tmp.y][tmp.x] == '*') {
+				tmp.x++;
+			}
+			if (tmp.x < b.size) {
+				b.currentSquare = tmp;
+			}
+		}
+	}
+	else if (k==40) {
+		if (b.across) {
+			b.across = false;
+		}
+		else {
+			tmp.y++;
+			while (tmp.y < b.size && b.field[tmp.y][tmp.x] == '*') {
+				tmp.y++;
+			}
+			if (tmp.y < b.size) {
+				b.currentSquare = tmp;
+			}
+		}
+	}
+	else if (k == 8) {
+		b.scratch[b.currentSquare.y][b.currentSquare.x] = ' ';
+		if (b.across) {
+			tmp.x--;
+			while (tmp.x >= 0 && b.field[tmp.y][tmp.x] == '*') {
+				tmp.x--;
+			}
+			if (tmp.x >= 0) {
+				b.currentSquare = tmp;
+			}
+		}
+		else {
+			tmp.y--;
+			while (tmp.y >= 0 && b.field[tmp.y][tmp.x] == '*') {
+				tmp.y--;
+			}
+			if (tmp.y >= 0) {
+				b.currentSquare = tmp;
+			}
+		}
+	}
+	else if (k >= 65 && k <= 90) {
+		if (!started) {
+			started = true;
+			b.update();
+		}
+		if (b.territory[b.currentSquare.y][b.currentSquare.x] == 0) {
+			b.scratch[b.currentSquare.y][b.currentSquare.x] = String.fromCharCode(k);
+			b.checkClues();
+		}
+		if (b.across) {
+			tmp.x++;
+			while (tmp.x < b.size && b.field[tmp.y][tmp.x] == '*') {
+				tmp.x++;
+			}
+			if (tmp.x < b.size) {
+				b.currentSquare = tmp;
+			}
+		}
+		else {
+			tmp.y++;
+			while (tmp.y < b.size && b.field[tmp.y][tmp.x] == '*') {
+				tmp.y++;
+			}
+			if (tmp.y < b.size) {
+				b.currentSquare = tmp;
+			}
+		}
+		letter = String.fromCharCode(k);
+	}
+	addLetter(b.currentSquare.x,b.currentSquare.y,letter);
+	b.draw();
+};
+
+function addLetter(x,y,z) {
+	var xhr, params = 'x='+x+'&y='+y+'&z='+z;
+	
+	try{
+		// Opera 8.0+, Firefox, Safari
+		xhr = new XMLHttpRequest();
+	} catch (e){
+		// Internet Explorer Browsers
+		try{
+			xhr = new ActiveXObject("Msxml2.XMLHTTP");
+		} catch (e) {
+			try{
+				xhr = new ActiveXObject("Microsoft.XMLHTTP");
+			} catch (e){
+				// Something went wrong
+				alert("Your browser broke!");
+				return false;
+			}
+		}
+	}
+	// Create a function that will receive data sent from the server
+	xhr.onreadystatechange = function(){
+		if(xhr.readyState == 4){
+			// ?
+		}
+	}
+	xhr.open("POST", "addLetter.php", true);
+	xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+	xhr.send(params);
+}
+</script>
+</body>
+</html>
